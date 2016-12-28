@@ -11,6 +11,23 @@ import requests
 import signal
 
 
+class ScannerError(Exception):
+    """Base class for exceptions in this module"""
+    pass
+
+
+class ScanFrequencyError(ScannerError):
+    """
+    Exception raised for errors relating to too many scans being requested
+    on a short interval
+
+    Attributes:
+        message -- explanation of the error
+    """
+    def __init__(self, message):
+        self.message = message
+
+
 class TLSScanner():
     """
     A object representing a TLS configuration scanner. A wrapper around
@@ -56,17 +73,20 @@ class TLSScanner():
             print("Connection failure while attempting to retrieve "
                   "scan results for host {}",
                   host)
-            pass
+            signal.alarm(0)
+            raise err
         except requests.exceptions.Timeout as err:
             print("Timeout while attempting to retrieve scan results "
                   "for host {}", host)
-            pass
+            signal.alarm(0)
+            raise err
 
         try:
             self._scan_result = req.json()
         except ValueError as err:
             print("Could not parse JSON object from scan API "
                   "for host {}", host)
+            signal.alarm(0)
             raise err
 
         if self._scan_result['completion_perc'] == 100:
@@ -82,22 +102,26 @@ class TLSScanner():
                                 timeout=timeout)
         except requests.exceptions.ConnectionError as err:
             print("Connection failure while attempting to scan {}", host)
-            pass
+            signal.alarm(0)
+            raise err
         except requests.exceptions.Timeout as err:
             print("Timeout while attempting to scan {}", host)
-            pass
+            signal.alarm(0)
+            raise err
         if req.text.startswith("Last scan for target"):
-            # TODO: make custom exception to be thrown here for too many scans
-            # in short period
-            pass
+            # raise custom exception to notify user of too frequent scans
+            signal.alarm(0)
+            raise ScanFrequencyError("Too many scans requested in the past 3 "
+                                     "minutes... Try again soon or set rescan "
+                                     "to false to obtain previous results")
+
         # get scan ID
         try:
             self._scan_id = req.json()['scan_id']
         except ValueError as err:
             print("Could not parse JSON object from scan API "
                   "for host {}".format(self._hostname))
-            # TODO: think of different way to handle this
-            pass
+            raise err
 
     def run_scan(self, rescan=False, timeout=0):
         # start a signaled timeout exception
